@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
 import { simpleGit } from 'simple-git';
 import { csrfOriginCheck } from './csrf.mjs';
-import { isValidSlug, toScriptLiteral } from './security.mjs';
+import { isValidDateString, isValidSlug, toScriptLiteral } from './security.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -106,21 +106,61 @@ function formatDateInput(value) {
 	return d.toISOString().slice(0, 10);
 }
 
+// express.urlencoded({ extended: true }) parses bracketed field names
+// (e.g. "title[]=a&title[]=b") into arrays/objects, so a required-ness check
+// like `!title` isn't enough — an array is truthy. Reject anything that
+// isn't the plain string a normal form submission would produce, and make
+// sure pubDate is actually a valid calendar date before it ends up in
+// frontmatter (an invalid string there would fail the Zod schema at Astro
+// build time; a rolled-over one would silently save the wrong date).
+function validatePostFields({ title, description, pubDate, body }) {
+	if (![title, description, pubDate, body].every((v) => typeof v === 'string' && v.length > 0)) {
+		return 'タイトル・概要・公開日・本文は必須です。';
+	}
+	if (!isValidDateString(pubDate)) {
+		return '公開日が正しい日付形式ではありません。';
+	}
+	return null;
+}
+
+// Serializes git operations through this single queue so two near-simultaneous
+// submissions (e.g. a double-click, or a retry overlapping the original
+// request) can't interleave `add`/`commit`/`push` calls against the same
+// working tree.
+let gitQueue = Promise.resolve();
+
+function serialized(fn) {
+	const run = gitQueue.then(fn, fn);
+	gitQueue = run.then(
+		() => {},
+		() => {}
+	);
+	return run;
+}
+
 async function commitAndPush(relPath, message) {
-	try {
-		await git.add(relPath);
-		await git.commit(message);
-	} catch (err) {
-		return { ok: false, stage: 'commit', message: err.message };
-	}
-	if (AUTO_PUSH) {
+	return serialized(async () => {
 		try {
-			await git.push();
+			await git.add(relPath);
+			// Scope the commit to this path only, so it can't sweep up some
+			// unrelated staged change that happened to already be in the index.
+			await git.commit(message, [relPath]);
 		} catch (err) {
-			return { ok: false, stage: 'push', message: err.message };
+			// A retry after a push-only failure re-submits unchanged content:
+			// there's nothing new to commit, but we still need to push.
+			if (!/nothing to commit/i.test(err.message)) {
+				return { ok: false, stage: 'commit', message: err.message };
+			}
 		}
-	}
-	return { ok: true };
+		if (AUTO_PUSH) {
+			try {
+				await git.push();
+			} catch (err) {
+				return { ok: false, stage: 'push', message: err.message };
+			}
+		}
+		return { ok: true };
+	});
 }
 
 // --- views ---
@@ -281,6 +321,15 @@ function escapeHtml(str) {
 
 // --- app ---
 
+// Express 4 doesn't catch rejected promises from async handlers on its own;
+// an unhandled rejection here would just hang the response. Forward errors
+// to the error-handling middleware registered below instead.
+function asyncHandler(fn) {
+	return (req, res, next) => {
+		Promise.resolve(fn(req, res, next)).catch(next);
+	};
+}
+
 const app = express();
 app.use(ipAllowlist);
 app.use(csrfOriginCheck);
@@ -325,15 +374,16 @@ app.get('/new', (req, res) => {
 	res.send(layout('新規投稿', `<h1>新規投稿</h1>${postForm({ action: '/posts' })}`));
 });
 
-app.post('/posts', async (req, res) => {
+app.post('/posts', asyncHandler(async (req, res) => {
 	const { title, description, pubDate, body } = req.body;
 	let { slug } = req.body;
 
-	if (!title || !description || !pubDate || !body) {
+	const validationError = validatePostFields({ title, description, pubDate, body });
+	if (validationError) {
 		res.status(400).send(
 			layout(
 				'新規投稿',
-				`<p class="error">タイトル・概要・公開日・本文は必須です。</p>${postForm({ action: '/posts', ...req.body })}`
+				`<p class="error">${escapeHtml(validationError)}</p>${postForm({ action: '/posts', ...req.body })}`
 			)
 		);
 		return;
@@ -361,7 +411,7 @@ app.post('/posts', async (req, res) => {
 		return;
 	}
 
-	const frontmatter = { title, description, pubDate };
+	const frontmatter = { title, description, pubDate: formatDateInput(pubDate) };
 	const fileContent = matter.stringify(body, frontmatter);
 	const filePath = path.join(CONTENT_DIR, `${slug}.md`);
 	fs.writeFileSync(filePath, fileContent, 'utf-8');
@@ -382,7 +432,7 @@ app.post('/posts', async (req, res) => {
 	res.redirect(
 		`/?msg=${encodeURIComponent(`「${title}」を投稿しました。`)}&clearDraft=${encodeURIComponent('/posts')}`
 	);
-});
+}));
 
 app.get('/edit/:slug', (req, res) => {
 	const found = findPostFile(req.params.slug);
@@ -408,7 +458,7 @@ app.get('/edit/:slug', (req, res) => {
 	);
 });
 
-app.post('/edit/:slug', async (req, res) => {
+app.post('/edit/:slug', asyncHandler(async (req, res) => {
 	const action = `/edit/${encodeURIComponent(req.params.slug)}`;
 	const found = findPostFile(req.params.slug);
 	if (!found) {
@@ -417,11 +467,12 @@ app.post('/edit/:slug', async (req, res) => {
 	}
 
 	const { title, description, pubDate, body } = req.body;
-	if (!title || !description || !pubDate || !body) {
+	const validationError = validatePostFields({ title, description, pubDate, body });
+	if (validationError) {
 		res.status(400).send(
 			layout(
 				'投稿を編集',
-				`<p class="error">タイトル・概要・公開日・本文は必須です。</p>${postForm({
+				`<p class="error">${escapeHtml(validationError)}</p>${postForm({
 					action,
 					...req.body,
 					slug: req.params.slug,
@@ -434,13 +485,9 @@ app.post('/edit/:slug', async (req, res) => {
 
 	const raw = fs.readFileSync(found.path, 'utf-8');
 	const { data: existing } = matter(raw);
-	const frontmatter = {
-		title,
-		description,
-		pubDate,
-		...(existing.updatedDate ? { updatedDate: existing.updatedDate } : {}),
-		...(existing.heroImage ? { heroImage: existing.heroImage } : {}),
-	};
+	// Keep any existing frontmatter fields (heroImage, tags, etc.) this form
+	// doesn't know about, only overriding the three it actually edits.
+	const frontmatter = { ...existing, title, description, pubDate: formatDateInput(pubDate) };
 	const fileContent = matter.stringify(body, frontmatter);
 	fs.writeFileSync(found.path, fileContent, 'utf-8');
 
@@ -458,6 +505,15 @@ app.post('/edit/:slug', async (req, res) => {
 	}
 
 	res.redirect(`/?msg=${encodeURIComponent(`「${title}」を更新しました。`)}&clearDraft=${encodeURIComponent(action)}`);
+}));
+
+// Must be registered last. Catches anything asyncHandler forwards via next(),
+// plus any synchronous throw Express itself catches (e.g. from fs calls).
+app.use((err, req, res, next) => {
+	console.error(err);
+	res.status(500).send(
+		layout('エラー', `<p class="error">予期しないエラーが発生しました: ${escapeHtml(err.message)}</p><a href="/">一覧に戻る</a>`)
+	);
 });
 
 app.listen(PORT, HOST, () => {
