@@ -1,0 +1,82 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import { SITE_TITLE } from '../consts';
+
+const works = [
+	{
+		title: 'Habit Tracker',
+		description: '習慣の記録に特化した軽量PWA。オフラインでも記録でき、週次でCSVエクスポートできる。',
+		href: '#',
+		repo: '#',
+	},
+	{
+		title: 'markdown-diff-cli',
+		description: 'Markdown文書同士の差分を見出し単位で表示するCLIツール。ブログの推敲用に自作した。',
+		href: undefined,
+		repo: '#',
+	},
+];
+---
+
+<!doctype html>
+<html lang="ja">
+	<head>
+		<BaseHead title={`Works | ${SITE_TITLE}`} description="個人開発・OSSの作品リンク集" />
+		<style>
+			main {
+				width: 900px;
+			}
+			.works-grid {
+				display: grid;
+				grid-template-columns: repeat(2, 1fr);
+				gap: 1.5em;
+				list-style: none;
+				margin: 0;
+				padding: 0;
+			}
+			.work-card {
+				border: 1px solid rgb(var(--gray-light));
+				border-radius: 8px;
+				padding: 1.2em 1.4em;
+			}
+			.work-card h2 {
+				font-size: 1.4em;
+				margin-bottom: 0.4em;
+			}
+			.work-links {
+				display: flex;
+				gap: 1em;
+				margin-top: 0.8em;
+			}
+			@media (max-width: 720px) {
+				.works-grid {
+					grid-template-columns: 1fr;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<Header />
+		<main>
+			<h1>Works</h1>
+			<p>個人開発・OSSでつくったものへのリンクです。詳しい経緯は各記事も参照してください。</p>
+			<ul class="works-grid">
+				{
+					works.map((work) => (
+						<li class="work-card">
+							<h2>{work.title}</h2>
+							<p>{work.description}</p>
+							<div class="work-links">
+								{work.href && <a href={work.href}>サイト →</a>}
+								{work.repo && <a href={work.repo}>GitHub →</a>}
+							</div>
+						</li>
+					))
+				}
+			</ul>
+		</main>
+		<Footer />
+	</body>
+</html>

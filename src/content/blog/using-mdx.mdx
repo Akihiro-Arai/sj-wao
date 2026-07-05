@@ -1,22 +1,19 @@
 ---
-title: 'Using MDX'
-description: 'Lorem ipsum dolor sit amet'
-pubDate: 'Jun 01 2024'
+title: 'MDXを使ってみる'
+description: '記事の中でコンポーネントを使いたくなったときのためのMDXメモ。'
+pubDate: 'Jun 10 2026'
 heroImage: '../../assets/blog-placeholder-5.jpg'
 ---
 
-This theme comes with the [@astrojs/mdx](https://docs.astro.build/en/guides/integrations-guide/mdx/) integration installed and configured in your `astro.config.mjs` config file. If you prefer not to use MDX, you can disable support by removing the integration from your config file.
+このサイトは `astro.config.mjs` に [@astrojs/mdx](https://docs.astro.build/en/guides/integrations-guide/mdx/) を導入済みなので、`.md` の代わりに `.mdx` で記事を書くこともできる。
 
-## Why MDX?
+## MDXって何がいいの
 
-MDX is a special flavor of Markdown that supports embedded JavaScript & JSX syntax. This unlocks the ability to [mix JavaScript and UI Components into your Markdown content](https://docs.astro.build/en/guides/integrations-guide/mdx/#mdx-in-astro) for things like interactive charts or alerts.
+MDXはMarkdownの中にJavaScript・JSXを埋め込める拡張フォーマット。普段はMarkdownだけで十分だが、たまに記事中にインタラクティブなコンポーネントを差し込みたくなったときに使う。
 
-If you have existing content authored in MDX, this integration will hopefully make migrating to Astro a breeze.
+## 例
 
-## Example
-
-Here is how you import and use a UI component inside of MDX.  
-When you open this page in the browser, you should see the clickable button below.
+MDXの中でコンポーネントをimportして使うとこんな感じになる。ページを開くと下にボタンが表示されるはず。
 
 import HeaderLink from '../../components/HeaderLink.astro';
 

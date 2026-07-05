@@ -6,7 +6,8 @@ import { defineConfig, fontProviders } from 'astro/config';
 
 // https://astro.build/config
 export default defineConfig({
-	site: 'https://example.com',
+	// TODO: 正式ドメインが決まったら差し替える（Cloudflareで取得予定のsj-wao系ドメイン）
+	site: 'https://sj-wao.dev',
 	integrations: [mdx(), sitemap()],
 	fonts: [
 		{
