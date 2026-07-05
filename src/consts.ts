@@ -13,3 +13,8 @@ export type SocialLink = {
 export const SOCIAL_LINKS: SocialLink[] = [
 	{ name: 'GitHub', url: 'https://github.com/Akihiro-Arai', icon: 'github' },
 ];
+
+// Public API URL for the sj-wao-metrics Worker (see worker/README.md).
+// TODO(#6): replace <subdomain> once the Worker has been deployed for the
+// first time — `npx wrangler deploy` prints the real workers.dev subdomain.
+export const METRICS_API_URL = 'https://sj-wao-metrics.<subdomain>.workers.dev/api/metrics';

@@ -1,0 +1,158 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import { SITE_TITLE } from '../consts';
+---
+
+<!doctype html>
+<html lang="ja">
+	<head>
+		<BaseHead title={`Dashboard | ${SITE_TITLE}`} description="自宅の環境メトリクス" />
+		<style>
+			main {
+				width: 900px;
+				max-width: calc(100% - 2em);
+			}
+			.stale-badge {
+				display: inline-block;
+				margin-bottom: 1em;
+				padding: 0.3em 0.8em;
+				border-radius: 999px;
+				background: rgb(var(--gray-light));
+				color: rgb(var(--gray-dark));
+				font-size: 0.9em;
+			}
+			.metrics-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+				gap: 1.5em;
+				list-style: none;
+				margin: 0 0 1em 0;
+				padding: 0;
+			}
+			.metric-card {
+				border: 1px solid rgb(var(--gray-light));
+				border-radius: 8px;
+				padding: 1.2em 1.4em;
+			}
+			.metric-label {
+				color: rgb(var(--gray));
+				font-size: 0.9em;
+				margin-bottom: 0.3em;
+			}
+			.metric-value {
+				font-size: 1.8em;
+				font-weight: bold;
+			}
+			.updated-at {
+				color: rgb(var(--gray));
+				font-size: 0.9em;
+			}
+			@media (max-width: 720px) {
+				.metrics-grid {
+					grid-template-columns: 1fr;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<Header />
+		<main>
+			<h1>Dashboard</h1>
+			<p>自宅の環境メトリクスです。1時間ごとに更新されます。</p>
+			<span id="stale-badge" class="stale-badge" hidden>更新停止中</span>
+			<p id="status">読み込み中…</p>
+			<ul id="metrics-grid" class="metrics-grid" hidden></ul>
+			<p id="updated-at" class="updated-at"></p>
+		</main>
+		<Footer />
+		<script>
+			import { METRICS_API_URL } from '../consts';
+			import { isStale, parseMetricsResponse } from '../lib/metrics';
+
+			const METRIC_LABELS: Record<string, { label: string; unit: string }> = {
+				room_temp_c: { label: '室温', unit: '℃' },
+				room_humidity_pct: { label: '湿度', unit: '%' },
+			};
+
+			const statusEl = document.getElementById('status')!;
+			const staleBadge = document.getElementById('stale-badge')!;
+			const grid = document.getElementById('metrics-grid')!;
+			const updatedAtEl = document.getElementById('updated-at')!;
+
+			function formatUpdatedAt(iso: string): string {
+				const d = new Date(iso);
+				const pad = (n: number) => String(n).padStart(2, '0');
+				return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+			}
+
+			function showError() {
+				statusEl.textContent = 'データを取得できませんでした';
+				statusEl.hidden = false;
+				grid.hidden = true;
+			}
+
+			function render(data: { updatedAt: string; metrics: Record<string, number> }) {
+				statusEl.hidden = true;
+				grid.hidden = false;
+				grid.textContent = '';
+
+				for (const [key, value] of Object.entries(data.metrics)) {
+					const meta = METRIC_LABELS[key];
+					if (!meta) continue;
+
+					const li = document.createElement('li');
+					li.className = 'metric-card';
+
+					const label = document.createElement('div');
+					label.className = 'metric-label';
+					label.textContent = meta.label;
+
+					const val = document.createElement('div');
+					val.className = 'metric-value';
+					val.textContent = `${value}${meta.unit}`;
+
+					li.append(label, val);
+					grid.append(li);
+				}
+
+				updatedAtEl.textContent = `最終更新: ${formatUpdatedAt(data.updatedAt)}`;
+				staleBadge.hidden = !isStale(data.updatedAt, new Date());
+			}
+
+			async function load() {
+				let response: Response;
+				try {
+					response = await fetch(METRICS_API_URL);
+				} catch {
+					showError();
+					return;
+				}
+
+				if (!response.ok) {
+					showError();
+					return;
+				}
+
+				let json: unknown;
+				try {
+					json = await response.json();
+				} catch {
+					showError();
+					return;
+				}
+
+				const parsed = parseMetricsResponse(json);
+				if (!parsed) {
+					showError();
+					return;
+				}
+
+				render(parsed);
+			}
+
+			load();
+		</script>
+	</body>
+</html>

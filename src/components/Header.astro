@@ -11,6 +11,7 @@ import SocialLinks from './SocialLinks.astro';
 			<HeaderLink href="/">Home</HeaderLink>
 			<HeaderLink href="/blog">Blog</HeaderLink>
 			<HeaderLink href="/works">Works</HeaderLink>
+			<HeaderLink href="/dashboard">Dashboard</HeaderLink>
 			<HeaderLink href="/about">About</HeaderLink>
 		</div>
 		<SocialLinks class="header-social-links" />
@@ -26,6 +27,8 @@ import SocialLinks from './SocialLinks.astro';
 	h2 {
 		margin: 0;
 		font-size: 1em;
+		flex-shrink: 0;
+		white-space: nowrap;
 	}
 
 	h2 a,
