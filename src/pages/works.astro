@@ -4,20 +4,12 @@ import Footer from '../components/Footer.astro';
 import Header from '../components/Header.astro';
 import { SITE_TITLE } from '../consts';
 
-const works = [
-	{
-		title: 'Habit Tracker',
-		description: '習慣の記録に特化した軽量PWA。オフラインでも記録でき、週次でCSVエクスポートできる。',
-		href: '#',
-		repo: '#',
-	},
-	{
-		title: 'markdown-diff-cli',
-		description: 'Markdown文書同士の差分を見出し単位で表示するCLIツール。ブログの推敲用に自作した。',
-		href: undefined,
-		repo: '#',
-	},
-];
+const works: {
+	title: string;
+	description: string;
+	href?: string;
+	repo?: string;
+}[] = [];
 ---
 
 <!doctype html>
@@ -62,20 +54,24 @@ const works = [
 		<main>
 			<h1>Works</h1>
 			<p>個人開発・OSSでつくったものへのリンクです。詳しい経緯は各記事も参照してください。</p>
-			<ul class="works-grid">
-				{
-					works.map((work) => (
-						<li class="work-card">
-							<h2>{work.title}</h2>
-							<p>{work.description}</p>
-							<div class="work-links">
-								{work.href && <a href={work.href}>サイト →</a>}
-								{work.repo && <a href={work.repo}>GitHub →</a>}
-							</div>
-						</li>
-					))
-				}
-			</ul>
+			{
+				works.length === 0 ? (
+					<p>準備中です。</p>
+				) : (
+					<ul class="works-grid">
+						{works.map((work) => (
+							<li class="work-card">
+								<h2>{work.title}</h2>
+								<p>{work.description}</p>
+								<div class="work-links">
+									{work.href && <a href={work.href}>サイト →</a>}
+									{work.repo && <a href={work.repo}>GitHub →</a>}
+								</div>
+							</li>
+						))}
+					</ul>
+				)
+			}
 		</main>
 		<Footer />
 	</body>
