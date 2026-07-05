@@ -13,7 +13,6 @@ export async function onRequest(context) {
 		headers: {
 			"content-type": "text/html; charset=UTF-8",
 			"retry-after": "3600",
-			"x-debug-asset-status": String(asset.status),
 		},
 	});
 }
