@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
 import { simpleGit } from 'simple-git';
 import { csrfOriginCheck } from './csrf.mjs';
+import { isValidSlug, toScriptLiteral } from './security.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -83,6 +84,7 @@ function listPosts() {
 }
 
 function findPostFile(slug) {
+	if (!isValidSlug(slug)) return null;
 	for (const ext of ['md', 'mdx']) {
 		const p = path.join(CONTENT_DIR, `${slug}.${ext}`);
 		if (fs.existsSync(p)) return { path: p, ext };
@@ -130,21 +132,29 @@ const layout = (title, body) => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
 <style>
+  * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #222; }
   h1 { font-size: 1.4rem; }
   a { color: #2563eb; }
   form { display: flex; flex-direction: column; gap: 0.9rem; margin-top: 1.5rem; }
   label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.9rem; color: #444; }
-  input, textarea { font: inherit; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
-  textarea { min-height: 320px; font-family: ui-monospace, monospace; resize: vertical; }
-  button { align-self: flex-start; padding: 0.5rem 1.2rem; border: none; border-radius: 4px; background: #2563eb; color: white; font-size: 1rem; cursor: pointer; }
+  input, textarea { font: inherit; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; width: 100%; }
+  input { min-height: 44px; }
+  textarea { min-height: 50vh; font-family: ui-monospace, monospace; resize: vertical; }
+  button { align-self: flex-start; padding: 0.5rem 1.2rem; border: none; border-radius: 4px; background: #2563eb; color: white; font-size: 1rem; cursor: pointer; min-height: 44px; }
   button:hover { background: #1d4ed8; }
   .flash { background: #ecfdf5; border: 1px solid #10b981; padding: 0.7rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
   .error { background: #fef2f2; border: 1px solid #ef4444; padding: 0.7rem 1rem; border-radius: 4px; margin-bottom: 1rem; white-space: pre-wrap; }
+  .error a { display: inline-flex; align-items: center; min-height: 44px; margin-top: 0.5rem; }
+  .draft-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; background: #fffbeb; border: 1px solid #f59e0b; padding: 0.7rem 1rem; border-radius: 4px; margin-top: 1rem; }
+  .draft-banner button { min-height: 44px; padding: 0.4rem 0.9rem; font-size: 0.9rem; }
+  #draft-discard { background: #6b7280; }
+  #draft-discard:hover { background: #4b5563; }
   ul.posts { list-style: none; padding: 0; }
-  ul.posts li { display: flex; justify-content: space-between; align-items: baseline; padding: 0.6rem 0; border-bottom: 1px solid #eee; }
+  ul.posts li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.4rem; padding: 0.6rem 0; border-bottom: 1px solid #eee; }
+  ul.posts li a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.3rem; }
   .post-meta { color: #777; font-size: 0.85rem; }
-  .top-actions { display: flex; justify-content: space-between; align-items: center; }
+  .top-actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.6rem; }
 </style>
 </head>
 <body>
@@ -154,6 +164,11 @@ ${body}
 
 function postForm({ action, title = '', description = '', pubDate = '', slug = '', body = '', slugReadonly = false, updatedDate = '' }) {
 	return `
+<div id="draft-banner" class="draft-banner" hidden>
+  <span>保存されていない下書きがあります。</span>
+  <button type="button" id="draft-restore">復元</button>
+  <button type="button" id="draft-discard">破棄</button>
+</div>
 <form method="post" action="${action}">
   <label>タイトル
     <input type="text" name="title" required value="${escapeHtml(title)}">
@@ -171,7 +186,93 @@ function postForm({ action, title = '', description = '', pubDate = '', slug = '
     <textarea name="body" required>${escapeHtml(body)}</textarea>
   </label>
   <button type="submit">保存</button>
-</form>`;
+</form>
+${draftScript(action)}`;
+}
+
+// Autosaves form fields to localStorage as the user types, and offers to
+// restore them if the page is reloaded before a successful submit (e.g. the
+// server was unreachable). Cleared from the list page once a save actually
+// succeeds — see the `clearDraft` query param handling on GET /.
+function draftScript(draftKey) {
+	return `
+<script>
+(() => {
+  const KEY = ${toScriptLiteral(`admin-draft:${draftKey}`)};
+  const FIELDS = ['title', 'description', 'pubDate', 'slug', 'body'];
+  const form = document.querySelector('form');
+  const banner = document.getElementById('draft-banner');
+  const restoreBtn = document.getElementById('draft-restore');
+  const discardBtn = document.getElementById('draft-discard');
+
+  function currentValues() {
+    const values = {};
+    for (const name of FIELDS) {
+      const el = form.elements.namedItem(name);
+      if (el) values[name] = el.value;
+    }
+    return values;
+  }
+
+  function applyValues(values) {
+    for (const name of FIELDS) {
+      const el = form.elements.namedItem(name);
+      if (el && typeof values[name] === 'string') el.value = values[name];
+    }
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(currentValues()));
+    } catch {}
+  }
+
+  function clearDraft() {
+    try {
+      localStorage.removeItem(KEY);
+    } catch {}
+  }
+
+  let saved = null;
+  try {
+    saved = localStorage.getItem(KEY);
+  } catch {}
+
+  if (saved) {
+    try {
+      const draft = JSON.parse(saved);
+      const current = currentValues();
+      const differs = FIELDS.some((name) => (draft[name] || '') !== (current[name] || ''));
+      if (differs) {
+        banner.hidden = false;
+        restoreBtn.addEventListener('click', () => {
+          applyValues(draft);
+          banner.hidden = true;
+        });
+      }
+    } catch {}
+  }
+
+  discardBtn.addEventListener('click', () => {
+    clearDraft();
+    banner.hidden = true;
+  });
+
+  form.addEventListener('input', save);
+})();
+</script>`;
+}
+
+// Distinguishes the two ways commitAndPush() can fail, since they leave the
+// repo in different states: a commit failure means the file is only saved
+// on disk (still untracked/uncommitted), while a push failure means it's
+// safely committed locally, just not published yet.
+function commitFailureMessage(result) {
+	const state =
+		result.stage === 'push'
+			? 'ローカルにコミット済みです（pushのみ失敗しました。サイトへの反映はまだです）'
+			: 'ファイルは保存済みですが、まだコミットされていません（commitに失敗しました）';
+	return `${state}: ${escapeHtml(result.message)}。再試行してください。`;
 }
 
 function escapeHtml(str) {
@@ -188,6 +289,14 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/', (req, res) => {
 	const posts = listPosts();
 	const msg = req.query.msg ? `<p class="flash">${escapeHtml(req.query.msg)}</p>` : '';
+	const clearDraftScript = req.query.clearDraft
+		? `<script>
+try { localStorage.removeItem(${toScriptLiteral('admin-draft:')} + ${toScriptLiteral(String(req.query.clearDraft))}); } catch {}
+// Drop clearDraft from the URL so reloading/revisiting this exact link later
+// (e.g. via browser history) doesn't wipe an unrelated newer draft.
+try { window.history.replaceState(null, '', '/'); } catch {}
+</script>`
+		: '';
 	const items = posts
 		.map(
 			(p) => `<li>
@@ -202,7 +311,7 @@ app.get('/', (req, res) => {
 	res.send(
 		layout(
 			'投稿一覧',
-			`${msg}
+			`${msg}${clearDraftScript}
 <div class="top-actions">
   <h1>投稿一覧</h1>
   <a href="/new"><button type="button">新規投稿</button></a>
@@ -232,6 +341,16 @@ app.post('/posts', async (req, res) => {
 
 	slug = (slug || '').trim() || slugify(title);
 
+	if (!isValidSlug(slug)) {
+		res.status(400).send(
+			layout(
+				'新規投稿',
+				`<p class="error">スラッグは半角英数字と「-」のみ、先頭は英数字にしてください。</p>${postForm({ action: '/posts', ...req.body })}`
+			)
+		);
+		return;
+	}
+
 	if (findPostFile(slug)) {
 		res.status(400).send(
 			layout(
@@ -254,13 +373,15 @@ app.post('/posts', async (req, res) => {
 		res.send(
 			layout(
 				'新規投稿',
-				`<p class="error">${result.stage === 'push' ? 'pushに失敗しました' : 'commitに失敗しました'}: ${escapeHtml(result.message)}. 変更はローカルに${result.stage === 'push' ? 'コミット済み' : '保存済み（未コミット）'}です。</p>`
+				`<p class="error">${commitFailureMessage(result)}<a href="/edit/${encodeURIComponent(slug)}">編集画面に戻る</a></p>`
 			)
 		);
 		return;
 	}
 
-	res.redirect(`/?msg=${encodeURIComponent(`「${title}」を投稿しました。`)}`);
+	res.redirect(
+		`/?msg=${encodeURIComponent(`「${title}」を投稿しました。`)}&clearDraft=${encodeURIComponent('/posts')}`
+	);
 });
 
 app.get('/edit/:slug', (req, res) => {
@@ -288,6 +409,7 @@ app.get('/edit/:slug', (req, res) => {
 });
 
 app.post('/edit/:slug', async (req, res) => {
+	const action = `/edit/${encodeURIComponent(req.params.slug)}`;
 	const found = findPostFile(req.params.slug);
 	if (!found) {
 		res.status(404).send(layout('見つかりません', '<h1>投稿が見つかりません</h1><a href="/">一覧に戻る</a>'));
@@ -300,7 +422,7 @@ app.post('/edit/:slug', async (req, res) => {
 			layout(
 				'投稿を編集',
 				`<p class="error">タイトル・概要・公開日・本文は必須です。</p>${postForm({
-					action: `/edit/${encodeURIComponent(req.params.slug)}`,
+					action,
 					...req.body,
 					slug: req.params.slug,
 					slugReadonly: true,
@@ -329,13 +451,13 @@ app.post('/edit/:slug', async (req, res) => {
 		res.send(
 			layout(
 				'投稿を編集',
-				`<p class="error">${result.stage === 'push' ? 'pushに失敗しました' : 'commitに失敗しました'}: ${escapeHtml(result.message)}. 変更はローカルに${result.stage === 'push' ? 'コミット済み' : '保存済み（未コミット）'}です。</p>`
+				`<p class="error">${commitFailureMessage(result)}<a href="${action}">編集画面に戻る</a></p>`
 			)
 		);
 		return;
 	}
 
-	res.redirect(`/?msg=${encodeURIComponent(`「${title}」を更新しました。`)}`);
+	res.redirect(`/?msg=${encodeURIComponent(`「${title}」を更新しました。`)}&clearDraft=${encodeURIComponent(action)}`);
 });
 
 app.listen(PORT, HOST, () => {
