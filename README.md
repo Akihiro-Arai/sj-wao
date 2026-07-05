@@ -30,7 +30,7 @@ All commands are run from the root of the project, from a terminal:
 4. これらの Secret が未設定のうちは `ci.yml`（ビルド検証）は push / PR のたびに成功するが、`deploy.yml` は失敗する。これは想定内の挙動。
 5. 独自ドメイン（sj-wao用に取得予定のドメイン）は、Pages プロジェクト作成後に Cloudflareダッシュボードの Custom domains から手動で紐付ける。
 
-> `astro.config.mjs` の `site` は現状プレースホルダー (`https://sj-wao.dev`) になっている。実際のドメインが決まったら、本番公開前に必ず正しい値へ差し替えること（canonical URL・RSS・sitemap に影響する）。
+> `astro.config.mjs` の `site` は本番ドメイン `https://sj-wao.com` に設定済み（canonical URL・RSS・sitemap の生成元になる）。
 
 ## Admin（投稿UI）
 
