@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
 import { simpleGit } from 'simple-git';
+import { csrfOriginCheck } from './csrf.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -181,6 +182,7 @@ function escapeHtml(str) {
 
 const app = express();
 app.use(ipAllowlist);
+app.use(csrfOriginCheck);
 app.use(express.urlencoded({ extended: true }));
 
 app.get('/', (req, res) => {
