@@ -1,4 +1,6 @@
 ---
+import { Image } from 'astro:assets';
+import profile from '../assets/profile.jpg';
 import BaseHead from '../components/BaseHead.astro';
 import Footer from '../components/Footer.astro';
 import Header from '../components/Header.astro';
@@ -9,11 +11,28 @@ import { SITE_DESCRIPTION, SITE_TITLE } from '../consts';
 <html lang="ja">
 	<head>
 		<BaseHead title={SITE_TITLE} description={SITE_DESCRIPTION} />
+		<style>
+			.profile-header {
+				display: flex;
+				align-items: center;
+				gap: 1em;
+			}
+			.profile-icon {
+				width: 96px;
+				height: 96px;
+				object-fit: cover;
+				border-radius: 8px;
+				flex-shrink: 0;
+			}
+		</style>
 	</head>
 	<body>
 		<Header />
 		<main>
-			<h1>sj-wao</h1>
+			<div class="profile-header">
+				<Image class="profile-icon" src={profile} alt="sj-wao のアイコン" width={160} height={160} loading="eager" />
+				<h1>sj-wao</h1>
+			</div>
 			<p>個人開発のログ、技術メモ、日々のことを書いていくサイトです。</p>
 			<p>
 				<a href="/blog">Blog</a> では作ったものや調べたことの技術メモを、<a href="/works">Works</a>
