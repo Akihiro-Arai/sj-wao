@@ -83,6 +83,27 @@ describe('GET /api/metrics', () => {
 		expect(json.metrics).toEqual({ room_temp_c: 26.5, room_humidity_pct: 55 });
 		expect(typeof json.updatedAt).toBe('string');
 	});
+
+	it('500s with a JSON error instead of throwing when the stored value is corrupted', async () => {
+		await env.METRICS.put('latest', 'not valid json');
+		const res = await exports.default.fetch(`${BASE}/api/metrics`);
+		expect(res.status).toBe(500);
+		expect(res.headers.get('content-type')).toContain('application/json');
+		const json = await res.json<{ error: string }>();
+		expect(json.error).toBe('stored data is corrupted');
+	});
+});
+
+describe('auth timing safety', () => {
+	it('401s when the token is the right prefix but wrong length', async () => {
+		const res = await post('{"room_temp_c":1}', { authorization: `Bearer ${TOKEN}extra` });
+		expect(res.status).toBe(401);
+	});
+
+	it('401s when the token is empty', async () => {
+		const res = await post('{"room_temp_c":1}', { authorization: 'Bearer ' });
+		expect(res.status).toBe(401);
+	});
 });
 
 describe('routing and CORS', () => {

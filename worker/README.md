@@ -67,3 +67,5 @@ curl -i "$URL/api/metrics"
 - 全メトリクスは1つのKVキー（`latest`）に1つのJSONとして保存する（KVはキー単位課金のため）
 - CORSは `https://sj-wao.com` と `http://localhost:4321`（開発用）のみ許可。`*.pages.dev` プレビュー環境からは意図的に弾かれる
 - 送信間隔は1時間で確定（Cloudflare無料枠のKV書き込み上限1,000回/日を踏まえた設計）
+- `POST /api/metrics` は**送信された内容で `latest` を丸ごと置き換える**仕様。あるメトリクスだけ送らなかった場合、既存の値とマージはされず消える。`collectMetrics()`（`scripts/post-metrics.mjs`）が毎回全メトリクスをまとめて送る前提になっている
+- Cloudflare KVは結果整合性（eventual consistency）。書き込み直後でも別リージョンからの読み取りには最大60秒程度反映が遅れることがある。加えて `GET` レスポンスの `Cache-Control: public, max-age=300` により、ブラウザ/CDN側で最大5分古い値がキャッシュされ得る。ダッシュボードの「最終更新」表示はこれを踏まえて見ること（即時性が必要になったらDurable Objects等への移行を検討）

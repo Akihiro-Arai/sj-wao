@@ -40,6 +40,22 @@ function methodNotAllowed(origin: string | null): Response {
 }
 
 /**
+ * Constant-time string comparison so a wrong Bearer token can't be guessed
+ * byte-by-byte via response timing. crypto.subtle.timingSafeEqual requires
+ * equal-length inputs, so hash both sides to a fixed-length SHA-256 digest
+ * first — that also means input length itself no longer affects the length
+ * check (digests are always 32 bytes), not just the byte comparison.
+ */
+async function timingSafeEqualString(a: string, b: string): Promise<boolean> {
+	const enc = new TextEncoder();
+	const [aDigest, bDigest] = await Promise.all([
+		crypto.subtle.digest('SHA-256', enc.encode(a)),
+		crypto.subtle.digest('SHA-256', enc.encode(b)),
+	]);
+	return crypto.subtle.timingSafeEqual(aDigest, bDigest);
+}
+
+/**
  * Reads the body incrementally, bailing out as soon as more than `limit` bytes
  * have arrived, so an oversized or lying Content-Length can't force the whole
  * payload into memory before we reject it.
@@ -78,7 +94,7 @@ async function readBodyWithLimit(request: Request, limit: number): Promise<strin
 async function handlePost(request: Request, env: Env, origin: string | null): Promise<Response> {
 	const authHeader = request.headers.get('authorization') ?? '';
 	const expected = `Bearer ${env.METRICS_TOKEN}`;
-	if (!env.METRICS_TOKEN || authHeader !== expected) {
+	if (!env.METRICS_TOKEN || !(await timingSafeEqualString(authHeader, expected))) {
 		return jsonResponse({ error: 'unauthorized' }, 401, origin);
 	}
 
@@ -122,27 +138,47 @@ async function handleGet(env: Env, origin: string | null): Promise<Response> {
 	if (stored === null) {
 		return jsonResponse({ error: 'no data' }, 404, origin);
 	}
-	return jsonResponse(JSON.parse(stored), 200, origin, { 'Cache-Control': 'public, max-age=300' });
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stored);
+	} catch {
+		// Shouldn't happen — we're the only writer — but don't let a corrupted
+		// KV value surface as an unhandled exception (no CORS/JSON headers).
+		return jsonResponse({ error: 'stored data is corrupted' }, 500, origin);
+	}
+
+	return jsonResponse(parsed, 200, origin, { 'Cache-Control': 'public, max-age=300' });
 }
 
 export default {
 	async fetch(request, env): Promise<Response> {
-		const url = new URL(request.url);
 		const origin = request.headers.get('origin');
 
-		if (url.pathname !== '/api/metrics') {
-			return jsonResponse({ error: 'not found' }, 404, origin);
-		}
+		try {
+			const url = new URL(request.url);
 
-		switch (request.method) {
-			case 'OPTIONS':
-				return preflightResponse(origin);
-			case 'POST':
-				return handlePost(request, env, origin);
-			case 'GET':
-				return handleGet(env, origin);
-			default:
-				return methodNotAllowed(origin);
+			if (url.pathname !== '/api/metrics') {
+				return jsonResponse({ error: 'not found' }, 404, origin);
+			}
+
+			switch (request.method) {
+				case 'OPTIONS':
+					return preflightResponse(origin);
+				case 'POST':
+					return handlePost(request, env, origin);
+				case 'GET':
+					return handleGet(env, origin);
+				default:
+					return methodNotAllowed(origin);
+			}
+		} catch (err) {
+			// A KV outage or any other unexpected failure would otherwise surface
+			// as an unhandled exception — no CORS headers, not even JSON — which
+			// breaks the dashboard's fetch in a way it can't render a nice error
+			// for. Log it and always respond consistently instead.
+			console.error(err);
+			return jsonResponse({ error: 'internal error' }, 500, origin);
 		}
 	},
 } satisfies ExportedHandler<Env>;
